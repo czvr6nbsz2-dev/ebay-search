@@ -4,8 +4,22 @@ import tempfile
 import os
 
 
+def _ensure_label(label):
+    result = subprocess.run(
+        ["gh", "label", "list", "--json", "name"],
+        capture_output=True, text=True,
+    )
+    existing = json.loads(result.stdout) if result.stdout.strip() else []
+    if not any(l["name"] == label for l in existing):
+        subprocess.run(
+            ["gh", "label", "create", label, "--color", "0e8a16",
+             "--description", "Zoekresultaten fotografiemateriaal"],
+        )
+
+
 def save_to_github_issue(title, body, labels=None):
     labels = labels or ["zoekresultaten"]
+    _ensure_label(labels[0])
 
     result = subprocess.run(
         [
