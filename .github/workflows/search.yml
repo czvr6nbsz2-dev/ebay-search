@@ -1,0 +1,34 @@
+name: Zoek fotografiemateriaal
+
+on:
+  workflow_dispatch:
+    inputs:
+      description:
+        description: 'Beschrijving van wat je zoekt'
+        required: true
+        type: string
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run search
+        env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CI: true
+        run: python main.py "${{ github.event.inputs.description }}"
