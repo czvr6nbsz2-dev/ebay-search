@@ -39,16 +39,19 @@ def get_ebay_token():
     return _token_cache["access_token"]
 
 
-def search_ebay(query, limit=10, category_id=None):
+def search_ebay(query, limit=25, category_id=None, region_filter=None):
     params = {"q": query, "limit": limit}
     if category_id:
         params["category_ids"] = category_id
+    if region_filter:
+        params["filter"] = region_filter
 
     response = requests.get(
         "https://api.ebay.com/buy/browse/v1/item_summary/search",
         headers={
             "Authorization": f"Bearer {get_ebay_token()}",
             "Content-Type": "application/json",
+            "X-EBAY-C-MARKETPLACE-ID": "EBAY_DE",
         },
         params=params,
     )

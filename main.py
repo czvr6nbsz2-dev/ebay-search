@@ -29,18 +29,12 @@ def deduplicate(items):
 def main():
     if len(sys.argv) < 2:
         print("Gebruik: python main.py \"beschrijving van wat je zoekt\"")
-        print()
-        print("Voorbeelden:")
-        print('  python main.py "Nikkor 35mm f/2 AI lens"')
-        print('  python main.py "35mm lens voor straatfotografie"')
-        print('  python main.py "Nikon D700 body"')
         sys.exit(1)
 
     description = sys.argv[1]
     context_path = Path(__file__).parent / "user_context.md"
     user_context = context_path.read_text(encoding="utf-8")
 
-    # 1. AI Intake: beschrijving -> zoekspecificatie
     print(f"Zoekopdracht: {description}")
     print("Intake-agent genereert zoekprofiel...\n")
     spec = generate_search_spec(description, user_context)
@@ -52,24 +46,33 @@ def main():
     print(f"eBay cat:    {spec.ebay_category}")
     print()
 
-    # Bevestiging (alleen lokaal, niet in CI)
     if not os.environ.get("CI") and not os.environ.get("GITHUB_ACTIONS"):
         confirm = input("Doorgaan met zoeken? [J/n] ").strip().lower()
         if confirm == "n":
             print("Gestopt.")
             sys.exit(0)
 
-    # 2. Zoeken op eBay en Marktplaats
     all_items = []
+    ebay_passes = [
+        ("globaal", None),
+        ("Japan", "itemLocationCountry:JP"),
+        ("Europa", "itemLocationRegion:EUROPE"),
+    ]
     for i, query in enumerate(spec.search_queries, 1):
         print(f"[{i}/{len(spec.search_queries)}] Zoeken: {query}")
-
-        try:
-            ebay_raw = search_ebay(query, limit=10, category_id=spec.ebay_category)
-            ebay_norm = normalize_items(ebay_raw, source="ebay")
-            all_items.extend(ebay_norm)
-        except Exception as e:
-            print(f"  eBay fout: {e}")
+        for label, region_filter in ebay_passes:
+            try:
+                ebay_raw = search_ebay(
+                    query,
+                    limit=25,
+                    category_id=spec.ebay_category,
+                    region_filter=region_filter,
+                )
+                ebay_norm = normalize_items(ebay_raw, source="ebay")
+                print(f"  eBay {label}: {len(ebay_norm)} treffers")
+                all_items.extend(ebay_norm)
+            except Exception as e:
+                print(f"  eBay {label} fout: {e}")
 
         try:
             mp_raw = search_marktplaats(query)
@@ -78,23 +81,19 @@ def main():
         except Exception as e:
             print(f"  Marktplaats fout: {e}")
 
-    # 3. Deduplicatie
     unique = deduplicate(all_items)
     print(f"\nGevonden: {len(all_items)} items, {len(unique)} uniek")
 
-    # 4. Filteren
     candidates = filter_items(unique, spec.include_terms, spec.exclude_terms)
     print(f"Na filtering: {len(candidates)} kandidaten\n")
 
     if not candidates:
-        print("Geen kandidaten gevonden na filtering. Probeer een bredere zoekopdracht.")
+        print("Geen kandidaten gevonden na filtering.")
         sys.exit(0)
 
-    # 5. AI Ranking
     print("AI-ranker beoordeelt kandidaten...\n")
     result = rank_items(candidates, spec.ranking_criteria, user_context)
 
-    # 6. Output
     title = f"{spec.display_name} \u2013 {date.today().isoformat()}"
 
     if os.environ.get("GITHUB_ACTIONS"):

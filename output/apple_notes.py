@@ -22,7 +22,7 @@ def save_to_apple_notes(title, body):
     script = (
         f'set htmlContent to read POSIX file "{html_path}" as «class utf8»\n'
         f'tell application "Notes"\n'
-        f"    make new note at folder \"Notes\" with properties "
+        f'    make new note with properties '
         f'{{name:"{escaped_title}", body:htmlContent}}\n'
         f"end tell"
     )
