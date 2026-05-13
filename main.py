@@ -70,7 +70,7 @@ def main():
             try:
                 raw = search_ebay(
                     query, limit=200,
-                    category_id=spec.ebay_category,
+                    category_id=None,
                     region_filter=region_filter,
                     marketplace=marketplace,
                 )
