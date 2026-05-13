@@ -1,17 +1,14 @@
 #!/usr/bin/env python3
 """
 Trigger een zoekactie via GitHub Actions en haal het resultaat op.
-Gebruik: python3 trigger_remote.py "Nikkor 35mm f/2 AI"
-
-Resultaat verschijnt als GitHub Issue (leesbaar op telefoon).
-Op Mac wordt het ook in Apple Notes gezet.
+Gebruik: python3 trigger_remote.py "beschrijving"
 """
 
 import sys
 import os
 import time
-import json
 import platform
+from datetime import datetime, timezone, date
 import requests
 from dotenv import load_dotenv
 
@@ -37,13 +34,10 @@ def trigger_workflow(description):
     print("Workflow gestart.\n")
 
 
-def wait_for_completion(timeout=180):
+def wait_for_completion(timeout=420):
     print("Wachten op voltooiing", end="", flush=True)
     start = time.time()
-
-    # Geef GitHub even om de run aan te maken
     time.sleep(5)
-
     while time.time() - start < timeout:
         resp = requests.get(
             f"https://api.github.com/repos/{REPO}/actions/runs",
@@ -52,35 +46,55 @@ def wait_for_completion(timeout=180):
         )
         resp.raise_for_status()
         runs = resp.json().get("workflow_runs", [])
-
         if runs:
             run = runs[0]
-            status = run["status"]
-            conclusion = run.get("conclusion")
-
-            if status == "completed":
-                print(f" {conclusion}!")
-                return conclusion == "success"
-
+            if run["status"] == "completed":
+                print(f" {run.get('conclusion')}!")
+                return run.get("conclusion") == "success"
         print(".", end="", flush=True)
         time.sleep(10)
-
     print(" timeout!")
     return False
 
 
-def get_latest_issue():
+def get_latest_result(workflow_start_iso, description):
     resp = requests.get(
         f"https://api.github.com/repos/{REPO}/issues",
         headers=HEADERS,
-        params={"labels": "zoekresultaten", "sort": "created", "direction": "desc", "per_page": 1},
+        params={
+            "labels": "zoekresultaten",
+            "sort": "updated",
+            "direction": "desc",
+            "per_page": 1,
+            "state": "all",
+        },
     )
     resp.raise_for_status()
     issues = resp.json()
+    today = date.today().isoformat()
+    title = f"Zoekresultaat: {description[:80]} \u2013 {today}"
 
-    if issues:
-        return issues[0]["title"], issues[0]["body"]
-    return None, None
+    if not issues:
+        return title, None
+
+    issue = issues[0]
+    comments_resp = requests.get(
+        issue["comments_url"],
+        headers=HEADERS,
+        params={"per_page": 100},
+    )
+    comments_resp.raise_for_status()
+    comments = comments_resp.json()
+
+    latest = None
+    for c in comments:
+        if c["created_at"] >= workflow_start_iso:
+            if not latest or c["created_at"] > latest["created_at"]:
+                latest = c
+
+    if latest:
+        return title, latest["body"]
+    return title, issue.get("body")
 
 
 def save_to_apple_notes(title, body):
@@ -95,24 +109,22 @@ def main():
         sys.exit(1)
 
     description = sys.argv[1]
+    workflow_start_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     trigger_workflow(description)
     success = wait_for_completion()
-
     if not success:
         print("Workflow mislukt. Check GitHub Actions logs.")
         sys.exit(1)
 
-    title, body = get_latest_issue()
-
+    title, body = get_latest_result(workflow_start_iso, description)
     if not body:
-        print("Geen resultaten gevonden in issues.")
+        print("Geen resultaten gevonden in issues/comments.")
         sys.exit(1)
 
     print(f"\n--- {title} ---\n")
-    print(body[:500] + "...\n")
+    print(body[:2000] + ("..." if len(body) > 2000 else "") + "\n")
 
-    # Op Mac: ook Apple Note aanmaken
     if platform.system() == "Darwin":
         save_to_apple_notes(title, body)
 

@@ -39,7 +39,7 @@ def get_ebay_token():
     return _token_cache["access_token"]
 
 
-def search_ebay(query, limit=25, category_id=None, region_filter=None):
+def search_ebay(query, limit=200, category_id=None, region_filter=None, marketplace="EBAY_DE"):
     params = {"q": query, "limit": limit}
     if category_id:
         params["category_ids"] = category_id
@@ -51,7 +51,7 @@ def search_ebay(query, limit=25, category_id=None, region_filter=None):
         headers={
             "Authorization": f"Bearer {get_ebay_token()}",
             "Content-Type": "application/json",
-            "X-EBAY-C-MARKETPLACE-ID": "EBAY_DE",
+            "X-EBAY-C-MARKETPLACE-ID": marketplace,
         },
         params=params,
     )

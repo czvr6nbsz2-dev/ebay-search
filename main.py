@@ -54,22 +54,22 @@ def main():
 
     all_items = []
     ebay_passes = [
-        ("globaal", None),
-        ("Japan", "itemLocationCountry:JP"),
-        ("Europa", "itemLocationRegion:EUROPE"),
+        ("Japan", "itemLocationCountry:JP", "EBAY_US"),
+        ("Europa", "itemLocationRegion:EUROPE", "EBAY_DE"),
     ]
     for i, query in enumerate(spec.search_queries, 1):
         print(f"[{i}/{len(spec.search_queries)}] Zoeken: {query}")
-        for label, region_filter in ebay_passes:
+        for label, region_filter, marketplace in ebay_passes:
             try:
                 ebay_raw = search_ebay(
                     query,
-                    limit=25,
+                    limit=200,
                     category_id=spec.ebay_category,
                     region_filter=region_filter,
+                    marketplace=marketplace,
                 )
                 ebay_norm = normalize_items(ebay_raw, source="ebay")
-                print(f"  eBay {label}: {len(ebay_norm)} treffers")
+                print(f"  eBay {label} ({marketplace}): {len(ebay_norm)} treffers")
                 all_items.extend(ebay_norm)
             except Exception as e:
                 print(f"  eBay {label} fout: {e}")
