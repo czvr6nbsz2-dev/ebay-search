@@ -1,0 +1,52 @@
+name: Ruwe zoektocht (zonder AI)
+
+on:
+  workflow_dispatch:
+    inputs:
+      label:
+        description: 'Naam van de zoekopdracht'
+        required: true
+        type: string
+      queries:
+        description: 'Zoektermen, komma-gescheiden'
+        required: true
+        type: string
+      include:
+        description: 'Include-termen (OR), komma-gescheiden'
+        required: false
+        type: string
+      exclude:
+        description: 'Exclude-termen, komma-gescheiden'
+        required: false
+        type: string
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run raw search
+        env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          CI: true
+        run: |
+          python raw_search.py \
+            --label "${{ inputs.label }}" \
+            --queries "${{ inputs.queries }}" \
+            --include "${{ inputs.include }}" \
+            --exclude "${{ inputs.exclude }}"
