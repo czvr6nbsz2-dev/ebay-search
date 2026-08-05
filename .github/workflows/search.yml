@@ -26,11 +26,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run search
+      # Op deze branch draait de AI-loze variant: geen OPENAI_API_KEY nodig.
+      # Input-formaat: "label || zoektermen || include-termen || exclude-termen"
+      - name: Run raw search
         env:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ github.token }}
           CI: true
-        run: python main.py "${{ github.event.inputs.description }}"
+        run: python raw_search.py "${{ github.event.inputs.description }}"

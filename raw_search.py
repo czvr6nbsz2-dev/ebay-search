@@ -113,25 +113,43 @@ def render(label, queries, include_terms, exclude_terms, stats, items):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--label", required=True)
-    parser.add_argument("--queries", required=True, help="komma-gescheiden")
+    parser.add_argument(
+        "spec",
+        nargs="?",
+        help='Alles-in-een: "label || query1, query2 || include1 || exclude1, exclude2"',
+    )
+    parser.add_argument("--label")
+    parser.add_argument("--queries", help="komma-gescheiden")
     parser.add_argument("--include", default="", help="komma-gescheiden (OR)")
     parser.add_argument("--exclude", default="", help="komma-gescheiden")
     args = parser.parse_args()
 
-    queries = split_arg(args.queries)
-    include_terms = split_arg(args.include)
-    exclude_terms = split_arg(args.exclude)
+    if args.spec:
+        parts = [p.strip() for p in args.spec.split("||")]
+        parts += [""] * (4 - len(parts))
+        label, raw_queries, raw_include, raw_exclude = parts[:4]
+    else:
+        label = args.label
+        raw_queries = args.queries
+        raw_include = args.include
+        raw_exclude = args.exclude
 
-    print(f"Zoeken: {args.label}")
+    if not label or not raw_queries:
+        parser.error("label en queries zijn verplicht")
+
+    queries = split_arg(raw_queries)
+    include_terms = split_arg(raw_include)
+    exclude_terms = split_arg(raw_exclude)
+
+    print(f"Zoeken: {label}")
     all_items, stats = collect(queries)
 
     unique = deduplicate(all_items)
     filtered = filter_items(unique, include_terms, exclude_terms)
     print(f"\n{len(all_items)} ruw, {len(unique)} uniek, {len(filtered)} na filtering")
 
-    body = render(args.label, queries, include_terms, exclude_terms, stats, filtered)
-    title = f"{args.label} – {date.today().isoformat()}"
+    body = render(label, queries, include_terms, exclude_terms, stats, filtered)
+    title = f"{label} – {date.today().isoformat()}"
 
     if os.environ.get("GITHUB_ACTIONS"):
         from output.github_issue import save_to_github_issue
