@@ -14,6 +14,7 @@ Gebruik:
 
 import argparse
 import os
+import re
 import sys
 from datetime import date
 
@@ -25,9 +26,13 @@ from sources.ebay import search_ebay
 from normalize import normalize_items
 from filter import filter_items
 
+# Per pass: (label, eBay-locatiefilter, marketplace)
+# Europa wordt via twee marketplaces bevraagd: DE (grootste Europese
+# catalogus) en NL (Nederlandse aanbiedingen die niet naar .de doorlopen).
 EBAY_PASSES = [
     ("Japan", "itemLocationCountry:JP", "EBAY_US"),
-    ("Europa", "itemLocationRegion:EUROPE", "EBAY_DE"),
+    ("Europa/DE", "itemLocationRegion:EUROPE", "EBAY_DE"),
+    ("Europa/NL", "itemLocationRegion:EUROPE", "EBAY_NL"),
 ]
 
 
@@ -35,13 +40,22 @@ def split_arg(value):
     return [t.strip() for t in (value or "").split(",") if t.strip()]
 
 
+def item_key(url):
+    """eBay hangt per zoekterm andere tracking-parameters aan dezelfde URL,
+    dus ontdubbelen gebeurt op het item-ID, niet op de volledige URL."""
+    if not url:
+        return None
+    m = re.search(r"/itm/(\d+)", url)
+    return m.group(1) if m else url
+
+
 def deduplicate(items):
     seen = set()
     unique = []
     for item in items:
-        url = item.get("url")
-        if url and url not in seen:
-            seen.add(url)
+        key = item_key(item.get("url"))
+        if key and key not in seen:
+            seen.add(key)
             unique.append(item)
     return unique
 
@@ -94,6 +108,7 @@ def render(label, queries, include_terms, exclude_terms, stats, items):
 
     for i in items:
         title = (i.get("title") or "").replace("|", "/")
+        url = (i.get("url") or "").split("?")[0]  # tracking-parameters eraf
         lines.append(
             f"| {i.get('region') or '?'} "
             f"| {i.get('location') or '?'} "
@@ -102,7 +117,7 @@ def render(label, queries, include_terms, exclude_terms, stats, items):
             f"| {i.get('seller') or '?'} "
             f"| {i.get('seller_feedback') or '?'} "
             f"| {title} "
-            f"| {i.get('url') or ''} |"
+            f"| {url} |"
         )
 
     if not items:
