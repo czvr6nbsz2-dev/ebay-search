@@ -26,6 +26,11 @@ from sources.ebay import search_ebay
 from normalize import normalize_items
 from filter import filter_items
 
+# Waar de koper woont. deliveryCountry gooit alle aanbiedingen weg die niet
+# naar dit land verzenden — zonder dat filter komen er listings terug met
+# "Kein Versand nach Niederlande", waar je niets aan hebt.
+SHIP_TO = "NL"
+
 # Per pass: (label, eBay-locatiefilter, marketplace)
 # Europa wordt via twee marketplaces bevraagd: DE (grootste Europese
 # catalogus) en NL (Nederlandse aanbiedingen die niet naar .de doorlopen).
@@ -34,6 +39,10 @@ EBAY_PASSES = [
     ("Europa/DE", "itemLocationRegion:EUROPE", "EBAY_DE"),
     ("Europa/NL", "itemLocationRegion:EUROPE", "EBAY_NL"),
 ]
+
+
+def with_delivery(region_filter, ship_to=SHIP_TO):
+    return f"{region_filter},deliveryCountry:{ship_to}" if ship_to else region_filter
 
 
 def split_arg(value):
@@ -70,7 +79,7 @@ def collect(queries, region_passes=EBAY_PASSES):
                     query,
                     limit=200,
                     category_id=None,
-                    region_filter=region_filter,
+                    region_filter=with_delivery(region_filter),
                     marketplace=marketplace,
                 )
                 norm = normalize_items(raw, source="ebay")
@@ -93,6 +102,7 @@ def render(label, queries, include_terms, exclude_terms, stats, items):
         f"**Zoektermen:** `{queries}`  ",
         f"**Include:** `{include_terms}`  ",
         f"**Exclude:** `{exclude_terms}`  ",
+        f"**Verzendt naar:** `{SHIP_TO}` (aanbiedingen zonder verzending hierheen zijn weggelaten)  ",
         f"**Aantal na filtering:** {len(items)}",
         "",
         "## Treffers per pass",
