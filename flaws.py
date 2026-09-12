@@ -113,7 +113,9 @@ def scan(description_html):
 
     for label, terms in FLAW_TERMS.items():
         for term in terms:
-            for m in re.finditer(r"\b" + re.escape(term), text):
+            # \w* consumeert de rest van het woord, zodat bij "scratches -no"
+            # de ontkenning erachter nog wordt gezien (en niet de "es" ervoor).
+            for m in re.finditer(r"\b" + re.escape(term) + r"\w*", text):
                 if _negated(text, m.start(), m.end()):
                     reassurances[label] = reassurances.get(label, 0) + 1
                 else:
