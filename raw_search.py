@@ -22,9 +22,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from sources.ebay import search_ebay
+from sources.ebay import search_ebay, get_item_description
 from normalize import normalize_items
 from filter import filter_items
+import flaws
+
+# Hoeveel kandidaten hun volledige beschrijving krijgen nagelopen op gebreken.
+# Eén extra API-call per item, dus begrensd.
+INSPECT_LIMIT = 60
+
+MARKETPLACE_BY_DOMAIN = {
+    "ebay.de": "EBAY_DE",
+    "ebay.nl": "EBAY_NL",
+    "ebay.com": "EBAY_US",
+    "ebay.co.uk": "EBAY_GB",
+    "ebay.fr": "EBAY_FR",
+    "ebay.it": "EBAY_IT",
+    "ebay.es": "EBAY_ES",
+    "ebay.at": "EBAY_AT",
+    "ebay.be": "EBAY_BE",
+    "ebay.ie": "EBAY_IE",
+}
 
 # Waar de koper woont. deliveryCountry gooit alle aanbiedingen weg die niet
 # naar dit land verzenden — zonder dat filter komen er listings terug met
@@ -47,6 +65,52 @@ def with_delivery(region_filter, ship_to=SHIP_TO):
 
 def split_arg(value):
     return [t.strip() for t in (value or "").split(",") if t.strip()]
+
+
+def marketplace_for(url):
+    for domain, mp in MARKETPLACE_BY_DOMAIN.items():
+        if domain in (url or ""):
+            return mp
+    return "EBAY_DE"
+
+
+def price_value(item):
+    try:
+        return float(item.get("price") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def inspect_descriptions(items, limit=INSPECT_LIMIT):
+    """Haal per kandidaat de verkopersbeschrijving op en zoek naar gebreken.
+
+    De zoek-API levert alleen titels; "leichter Nebel" of schimmel staat
+    uitsluitend in de beschrijving. Zonder deze stap komen zulke exemplaren
+    gewoon in de aanbevelingen terecht.
+    """
+    todo = sorted(items, key=price_value)[:limit]
+    print(f"\nBeschrijvingen nalopen op gebreken ({len(todo)} van {len(items)})...")
+    checked = 0
+    for item in todo:
+        legacy_id = item_key(item.get("url"))
+        if not legacy_id or not legacy_id.isdigit():
+            continue
+        try:
+            html = get_item_description(legacy_id, marketplace_for(item.get("url")))
+        except Exception as e:
+            item["flaws"] = f"(ophalen mislukt: {e})"
+            continue
+        if html is None:
+            item["flaws"] = "(geen beschrijving)"
+            continue
+        found, clean = flaws.scan(html)
+        item["flaws"] = flaws.summarize(found, clean)
+        item["flaw_detail"] = "; ".join(
+            f"{cat}: {frags[0]}" for cat, frags in list(found.items())[:3]
+        )
+        checked += 1
+    print(f"  {checked} beschrijvingen gecontroleerd")
+    return items
 
 
 def item_key(url):
@@ -114,11 +178,16 @@ def render(label, queries, include_terms, exclude_terms, stats, items):
             line += f" ⚠️ {err}"
         lines.append(line)
 
-    lines += ["", "## Listings", "", "| Regio | Land | Prijs | Staat | Verkoper | FB% | Titel | URL |", "|---|---|---|---|---|---|---|---|"]
+    lines += [
+        "", "## Listings", "",
+        "| Regio | Land | Prijs | Staat | Verkoper | FB% | Gebreken (uit beschrijving) | Titel | URL |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
 
     for i in items:
         title = (i.get("title") or "").replace("|", "/")
         url = (i.get("url") or "").split("?")[0]  # tracking-parameters eraf
+        flaw = (i.get("flaws") or "niet gecontroleerd").replace("|", "/")
         lines.append(
             f"| {i.get('region') or '?'} "
             f"| {i.get('location') or '?'} "
@@ -126,12 +195,21 @@ def render(label, queries, include_terms, exclude_terms, stats, items):
             f"| {i.get('condition') or '?'} "
             f"| {i.get('seller') or '?'} "
             f"| {i.get('seller_feedback') or '?'} "
+            f"| {flaw} "
             f"| {title} "
             f"| {url} |"
         )
 
     if not items:
-        lines.append("| — | — | — | — | — | — | *Geen listings na filtering* | — |")
+        lines.append("| — | — | — | — | — | — | — | *Geen listings na filtering* | — |")
+
+    detail = [i for i in items if i.get("flaw_detail")]
+    if detail:
+        lines += ["", "## Gevonden gebreken — letterlijke fragmenten", ""]
+        for i in detail:
+            lines.append(
+                f"- **{(i.get('title') or '')[:70]}** — {i['flaw_detail'][:300]}"
+            )
 
     return "\n".join(lines)
 
@@ -172,6 +250,8 @@ def main():
     unique = deduplicate(all_items)
     filtered = filter_items(unique, include_terms, exclude_terms)
     print(f"\n{len(all_items)} ruw, {len(unique)} uniek, {len(filtered)} na filtering")
+
+    inspect_descriptions(filtered)
 
     body = render(label, queries, include_terms, exclude_terms, stats, filtered)
     title = f"{label} – {date.today().isoformat()}"

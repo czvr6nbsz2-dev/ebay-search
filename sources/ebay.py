@@ -39,6 +39,30 @@ def get_ebay_token():
     return _token_cache["access_token"]
 
 
+def get_item_description(legacy_item_id, marketplace="EBAY_DE"):
+    """Haal de volledige verkopersbeschrijving op.
+
+    De zoek-API (item_summary/search) geeft alleen titels terug. Gebreken als
+    "leichter Nebel", schimmel of krassen staan vrijwel altijd uitsluitend in
+    de beschrijving, dus die moet apart worden opgehaald.
+    """
+    response = requests.get(
+        "https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id",
+        headers={
+            "Authorization": f"Bearer {get_ebay_token()}",
+            "Content-Type": "application/json",
+            "X-EBAY-C-MARKETPLACE-ID": marketplace,
+        },
+        params={"legacy_item_id": str(legacy_item_id)},
+        timeout=20,
+    )
+    if response.status_code != 200:
+        return None
+    data = response.json()
+    parts = [data.get("shortDescription") or "", data.get("description") or ""]
+    return "\n".join(p for p in parts if p)
+
+
 def search_ebay(query, limit=200, category_id=None, region_filter=None, marketplace="EBAY_DE"):
     params = {"q": query, "limit": limit}
     if category_id:
