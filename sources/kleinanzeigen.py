@@ -1,8 +1,13 @@
 """Kleinanzeigen.de (voorheen eBay Kleinanzeigen) — Duitse particulieren.
 
-Kleinanzeigen heeft geen open API, dus dit leest de zoekpagina. Net als bij
-Marktplaats geldt: bij een opmaakwijziging mag dit niet stilzwijgend een lege
-lijst opleveren, dus elke mislukking komt als diagnose terug.
+Geen open API, dus dit leest de zoekpagina. Eerdere poging zocht op
+klassenamen (article.aditem, .text-module-begin) en vond wel blokken maar
+geen titels: die namen kloppen niet meer.
+
+Deze versie hangt aan het enige dat structureel vastligt — elke advertentie
+linkt naar /s-anzeige/ — en leidt titel, prijs en plaats af uit het blok
+eromheen. Mislukt dat alsnog, dan rapporteert hij de werkelijke structuur
+van het eerste blok, zodat één draai genoeg is om het recht te zetten.
 """
 
 import re
@@ -19,10 +24,18 @@ HEADERS = {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
     "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+    "Cache-Control": "no-cache",
 }
+# Zonder toestemmingscookie serveert Kleinanzeigen een consent-pagina.
+COOKIES = {"gdpr-consent": "1", "ccpa-notice-viewed-02": "true"}
 
-_PRICE = re.compile(r"([\d.]+)\s*€")
+_PRICE = re.compile(r"(\d{1,3}(?:[.\s]\d{3})*|\d+)(?:,(\d{2}))?\s*€")
+_WS = re.compile(r"\s+")
 
 
 def _parse_price(text):
@@ -31,27 +44,38 @@ def _parse_price(text):
     match = _PRICE.search(text.replace("\xa0", " "))
     if not match:
         return None
+    whole = re.sub(r"[.\s]", "", match.group(1))
     try:
-        return float(match.group(1).replace(".", ""))
+        return float(f"{whole}.{match.group(2) or '00'}")
     except ValueError:
         return None
 
 
-def _first_text(node, selectors):
-    for selector in selectors:
-        found = node.select_one(selector)
-        if found:
-            text = found.get_text(" ", strip=True)
-            if text:
-                return text
-    return None
+def _clean(text):
+    return _WS.sub(" ", text or "").strip()
+
+
+def _block_for(anchor):
+    """Het advertentieblok rond een /s-anzeige/-link."""
+    block = anchor.find_parent("article") or anchor.find_parent("li")
+    if block is not None:
+        return block
+    parent = anchor.parent
+    for _ in range(3):
+        if parent is None or parent.name in ("body", "html"):
+            break
+        parent = parent.parent
+    return parent or anchor
 
 
 def search_kleinanzeigen(query, limit=30):
     """Geeft (resultaten, diagnose) terug."""
-    url = f"{BASE_URL}/s-{urllib.parse.quote_plus(query.replace(' ', '-'))}/k0"
+    slug = urllib.parse.quote(query.strip().replace(" ", "-"))
+    url = f"{BASE_URL}/s-{slug}/k0"
     try:
-        response = requests.get(url, headers=HEADERS, timeout=25)
+        response = requests.get(
+            url, headers=HEADERS, cookies=COOKIES, timeout=25
+        )
     except Exception as e:
         return [], f"verzoek mislukt: {type(e).__name__}: {str(e)[:120]}"
 
@@ -59,54 +83,56 @@ def search_kleinanzeigen(query, limit=30):
         return [], f"HTTP {response.status_code} ({len(response.text)} tekens terug)"
 
     soup = BeautifulSoup(response.text, "html.parser")
-    articles = soup.select("article.aditem") or soup.select("[data-adid]")
-    if not articles:
-        snippet = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))[:160]
-        return [], f"geen advertenties gevonden; pagina begint met: {snippet!r}"
+    anchors = soup.select('a[href*="/s-anzeige/"]')
+    if not anchors:
+        text = _clean(soup.get_text(" "))[:200]
+        return [], f"geen /s-anzeige/-links op de pagina; tekst begint met {text!r}"
 
-    results = []
-    for article in articles[:limit]:
-        href = article.get("data-href") or ""
-        link = article.select_one("a[href]")
-        if not href and link:
-            href = link.get("href", "")
+    results, seen = [], set()
+    for anchor in anchors:
+        href = anchor.get("href") or ""
         if href.startswith("/"):
             href = BASE_URL + href
+        key = href.split("?")[0]
+        if key in seen:
+            continue
 
-        title = _first_text(article, [
-            ".text-module-begin a", "h2 a", "h2", ".ellipsis",
-        ])
-        price_text = _first_text(article, [
-            ".aditem-main--middle--price-shipping--price",
-            ".aditem-main--middle--price",
-            "[class*='price']",
-        ])
-        location = _first_text(article, [
-            ".aditem-main--top--left", "[class*='top--left']",
-        ])
-        description = _first_text(article, [
-            ".aditem-main--middle--description", "[class*='description']",
-        ])
+        block = _block_for(anchor)
+        block_text = _clean(block.get_text(" "))
 
+        title = _clean(anchor.get_text(" "))
+        if not title:
+            heading = block.find(["h2", "h3"])
+            title = _clean(heading.get_text(" ")) if heading else ""
+        if not title or len(title) < 6:
+            continue
+
+        seen.add(key)
         results.append({
             "source": "kleinanzeigen",
             "region": "Kleinanzeigen",
             "title": title,
-            "price": _parse_price(price_text),
+            "price": _parse_price(block_text),
             "currency": "EUR",
             "condition": None,
             "seller": None,
             "seller_feedback": "particulier",
             "location": "DE",
-            "city": location,
-            "url": href or None,
-            "description": " ".join(filter(None, [title, description])),
+            "city": None,
+            "url": key or None,
+            "description": block_text[:1200],
         })
+        if len(results) >= limit:
+            break
 
-    parsed = [r for r in results if r["title"]]
-    if not parsed:
-        return [], f"{len(articles)} blokken gevonden maar geen titels herkend"
-    return parsed, None
+    if not results:
+        first = _block_for(anchors[0])
+        structure = f"<{first.name} class={first.get('class')}>"
+        return [], (
+            f"{len(anchors)} links gevonden maar geen bruikbare titels; "
+            f"eerste blok: {structure} tekst={_clean(first.get_text(' '))[:120]!r}"
+        )
+    return results, None
 
 
 def search_many(queries, limit=30, pause=1.5):
