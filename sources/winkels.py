@@ -43,6 +43,11 @@ HEADERS = {
 }
 
 _PRICE = re.compile(r"(?:€|EUR)\s*(\d{1,3}(?:\.\d{3})*|\d+)(?:[,.](\d{2}))?")
+# Fotohandel Delfshaven laat verkochte artikelen online staan met "Price: Sold".
+# Zonder deze controle lijkt een archief van jaren op actuele voorraad.
+_VERKOCHT = re.compile(
+    r"\b(sold|verkocht|uitverkocht|out of stock|niet (?:meer )?(?:op )?voorraad|"
+    r"nicht verf[üu]gbar|ausverkauft|vendu)\b", re.I)
 _WS = re.compile(r"\s+")
 _PRODUCT_HREF = re.compile(r"/(product|producten|shop|p|artikel|item)/", re.I)
 _PLATFORMS = ["woocommerce", "shopify", "lightspeed", "magento", "prestashop",
@@ -146,6 +151,7 @@ def zoek_winkel(shop, query, limit=25):
         return [], "geen productlinks herkend; " + _diagnose(soup, url)
 
     resultaten, gezien = [], set()
+    verkocht_aantal = 0
     for anker in ankers:
         href = anker["href"]
         if href.startswith("/"):
@@ -165,6 +171,14 @@ def zoek_winkel(shop, query, limit=25):
             continue
 
         gezien.add(sleutel)
+
+        # Verkochte artikelen blijven online staan. Ze horen niet in de
+        # resultaten, maar wel in de telling: nul leverbaar is iets anders
+        # dan een stukgelopen scraper.
+        if _VERKOCHT.search(bloktekst):
+            verkocht_aantal += 1
+            continue
+
         resultaten.append({
             "source": "winkel",
             "region": shop["naam"],
@@ -183,7 +197,12 @@ def zoek_winkel(shop, query, limit=25):
             break
 
     if not resultaten:
+        if verkocht_aantal:
+            return [], (f"niets leverbaar: alle {verkocht_aantal} treffers staan "
+                        f"als verkocht in de webshop")
         return [], f"{len(ankers)} productlinks maar geen titels; " + _diagnose(soup, url)
+    if verkocht_aantal:
+        return resultaten, f"(terzijde: {verkocht_aantal} treffers waren al verkocht)"
     return resultaten, None
 
 
