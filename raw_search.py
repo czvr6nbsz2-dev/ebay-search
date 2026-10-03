@@ -74,11 +74,30 @@ def marketplace_for(url):
     return "EBAY_DE"
 
 
+EU_COUNTRIES = {
+    "DE", "NL", "BE", "FR", "IT", "ES", "AT", "IE", "PT", "PL", "CZ", "SK",
+    "SI", "HR", "HU", "RO", "BG", "GR", "FI", "SE", "DK", "EE", "LV", "LT",
+    "LU", "MT", "CY",
+}
+
+# Ruwe omrekening, alleen om op prijs te kunnen sorteren.
+TO_EUR = {"EUR": 1.0, "USD": 0.92, "GBP": 1.16, "JPY": 0.0062, "CHF": 1.05}
+
+
 def price_value(item):
+    """Prijs in euro's. Zonder omrekening sorteert $1099 onder €750, waardoor
+    juist de Europese aanbiedingen buiten de gebrekcontrole vielen."""
     try:
-        return float(item.get("price") or 0)
+        amount = float(item.get("price") or 0)
     except (TypeError, ValueError):
         return 0.0
+    return amount * TO_EUR.get(item.get("currency") or "EUR", 1.0)
+
+
+def inspect_priority(item):
+    """EU eerst, daarna op prijs: binnen de EU koopt de gebruiker zonder
+    invoerkosten, dus die aanbiedingen moeten sowieso gecontroleerd zijn."""
+    return (0 if (item.get("location") in EU_COUNTRIES) else 1, price_value(item))
 
 
 def inspect_descriptions(items, limit=INSPECT_LIMIT):
@@ -88,8 +107,12 @@ def inspect_descriptions(items, limit=INSPECT_LIMIT):
     uitsluitend in de beschrijving. Zonder deze stap komen zulke exemplaren
     gewoon in de aanbevelingen terecht.
     """
-    todo = sorted(items, key=price_value)[:limit]
-    print(f"\nBeschrijvingen nalopen op gebreken ({len(todo)} van {len(items)})...")
+    todo = sorted(items, key=inspect_priority)[:limit]
+    eu_count = sum(1 for i in todo if i.get("location") in EU_COUNTRIES)
+    print(
+        f"\nBeschrijvingen nalopen op gebreken ({len(todo)} van {len(items)}, "
+        f"waarvan {eu_count} in de EU)..."
+    )
     checked = 0
     for item in todo:
         legacy_id = item_key(item.get("url"))
