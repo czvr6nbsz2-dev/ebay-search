@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from sources.ebay import search_ebay, get_item_description
+from sources import marktplaats, kleinanzeigen
 from normalize import normalize_items
 from filter import filter_items
 import flaws
@@ -115,14 +116,18 @@ def inspect_descriptions(items, limit=INSPECT_LIMIT):
     )
     checked = 0
     for item in todo:
-        legacy_id = item_key(item.get("url"))
-        if not legacy_id or not legacy_id.isdigit():
-            continue
-        try:
-            html = get_item_description(legacy_id, marketplace_for(item.get("url")))
-        except Exception as e:
-            item["flaws"] = f"(ophalen mislukt: {e})"
-            continue
+        # Marktplaats en Kleinanzeigen leveren hun tekst al mee; alleen voor
+        # eBay is een extra verzoek nodig.
+        html = item.get("description")
+        if not html:
+            legacy_id = item_key(item.get("url"))
+            if not legacy_id or not legacy_id.isdigit():
+                continue
+            try:
+                html = get_item_description(legacy_id, marketplace_for(item.get("url")))
+            except Exception as e:
+                item["flaws"] = f"(ophalen mislukt: {e})"
+                continue
         if html is None:
             item["flaws"] = "(geen beschrijving)"
             continue
@@ -138,11 +143,19 @@ def inspect_descriptions(items, limit=INSPECT_LIMIT):
 
 def item_key(url):
     """eBay hangt per zoekterm andere tracking-parameters aan dezelfde URL,
-    dus ontdubbelen gebeurt op het item-ID, niet op de volledige URL."""
+    dus ontdubbelen gebeurt op het advertentie-ID, niet op de volledige URL."""
     if not url:
         return None
-    m = re.search(r"/itm/(\d+)", url)
-    return m.group(1) if m else url
+    m = re.search(r"/itm/(\d+)", url)                      # eBay
+    if m:
+        return m.group(1)
+    m = re.search(r"/(m\d{6,})", url)                      # Marktplaats
+    if m:
+        return m.group(1)
+    m = re.search(r"/s-anzeige/[^/]+/(\d{6,})", url)       # Kleinanzeigen
+    if m:
+        return m.group(1)
+    return url.split("?")[0]
 
 
 def deduplicate(items):
@@ -178,6 +191,22 @@ def collect(queries, region_passes=EBAY_PASSES):
             except Exception as e:
                 stats.append((query, label, 0, str(e)))
                 print(f"  {query} -> {label}: FOUT {e}", file=sys.stderr)
+
+    # Particuliere advertentiesites: geen veiling, vaak scherper geprijsd, maar
+    # ook geen kopersbescherming. Een mislukking mag niet als lege lijst
+    # verdwijnen, dus de diagnose gaat mee in de statistieken.
+    for module, label in ((marktplaats, "Marktplaats"), (kleinanzeigen, "Kleinanzeigen")):
+        try:
+            found, notes = module.search_many(queries)
+            items.extend(found)
+            for query, count, problem in notes:
+                stats.append((query, label, count, problem))
+                print(f"  {query} -> {label}: {count} treffers"
+                      + (f" ⚠️ {problem}" if problem else ""))
+        except Exception as e:
+            stats.append(("(alle termen)", label, 0, f"{type(e).__name__}: {e}"))
+            print(f"  {label}: FOUT {e}", file=sys.stderr)
+
     return items, stats
 
 
