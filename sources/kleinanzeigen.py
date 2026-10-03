@@ -34,7 +34,9 @@ HEADERS = {
 # Zonder toestemmingscookie serveert Kleinanzeigen een consent-pagina.
 COOKIES = {"gdpr-consent": "1", "ccpa-notice-viewed-02": "true"}
 
-_PRICE = re.compile(r"(\d{1,3}(?:[.\s]\d{3})*|\d+)(?:,(\d{2}))?\s*€")
+# Alleen een punt als duizendtalscheiding. Met een spatie erbij leest
+# "HN-3 450,00 €" als 3450 in plaats van 450.
+_PRICE = re.compile(r"(\d{1,3}(?:\.\d{3})*|\d+)(?:,(\d{2}))?\s*€")
 _WS = re.compile(r"\s+")
 
 
@@ -44,7 +46,7 @@ def _parse_price(text):
     match = _PRICE.search(text.replace("\xa0", " "))
     if not match:
         return None
-    whole = re.sub(r"[.\s]", "", match.group(1))
+    whole = match.group(1).replace(".", "")
     try:
         return float(f"{whole}.{match.group(2) or '00'}")
     except ValueError:
@@ -56,8 +58,12 @@ def _clean(text):
 
 
 def _block_for(anchor):
-    """Het advertentieblok rond een /s-anzeige/-link."""
-    block = anchor.find_parent("article") or anchor.find_parent("li")
+    """Het advertentieblok rond een /s-anzeige/-link.
+
+    Het <li>-blok gaat vóór het <article>-blok: de prijs staat bij
+    Kleinanzeigen soms buiten het article maar wel binnen het lijstitem.
+    """
+    block = anchor.find_parent("li") or anchor.find_parent("article")
     if block is not None:
         return block
     parent = anchor.parent
