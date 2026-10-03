@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from sources.ebay import search_ebay, get_item_description
-from sources import marktplaats, kleinanzeigen
+from sources import marktplaats, kleinanzeigen, winkels
 from normalize import normalize_items
 from filter import filter_items
 import flaws
@@ -195,7 +195,9 @@ def collect(queries, region_passes=EBAY_PASSES):
     # Particuliere advertentiesites: geen veiling, vaak scherper geprijsd, maar
     # ook geen kopersbescherming. Een mislukking mag niet als lege lijst
     # verdwijnen, dus de diagnose gaat mee in de statistieken.
-    for module, label in ((marktplaats, "Marktplaats"), (kleinanzeigen, "Kleinanzeigen")):
+    for module, label in ((marktplaats, "Marktplaats"),
+                          (kleinanzeigen, "Kleinanzeigen"),
+                          (winkels, "Winkels")):
         try:
             found, notes = module.search_many(queries)
             items.extend(found)
