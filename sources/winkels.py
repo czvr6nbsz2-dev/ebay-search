@@ -50,6 +50,12 @@ _VERKOCHT = re.compile(
     r"nicht verf[üu]gbar|ausverkauft|vendu)\b", re.I)
 _WS = re.compile(r"\s+")
 _PRODUCT_HREF = re.compile(r"/(product|producten|shop|p|artikel|item)/", re.I)
+# Een zoekopdracht zonder treffers is geen kapotte scraper. Zonder dit
+# onderscheid meldt elke lege zoekterm wekelijks vals alarm.
+_GEEN_TREFFERS = re.compile(
+    r"(no products were found|geen producten gevonden|geen resultaten|"
+    r"nothing found|niets gevonden|0 resultaten|keine (?:produkte|artikel) gefunden)",
+    re.I)
 _PLATFORMS = ["woocommerce", "shopify", "lightspeed", "magento", "prestashop",
               "ccvshop", "myonlinestore", "wp-content"]
 
@@ -148,6 +154,8 @@ def zoek_winkel(shop, query, limit=25):
     ankers = [a for a in soup.find_all("a", href=True)
               if _PRODUCT_HREF.search(a["href"])]
     if not ankers:
+        if _GEEN_TREFFERS.search(soup.get_text(" ")):
+            return [], None          # gewoon niets gevonden, niets kapot
         return [], "geen productlinks herkend; " + _diagnose(soup, url)
 
     resultaten, gezien = [], set()
