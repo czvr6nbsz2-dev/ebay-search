@@ -66,6 +66,31 @@ def _price(text):
         return None
 
 
+def _blok_met_prijs(anker):
+    """Het kleinste blok rond de link dat ook de prijs bevat.
+
+    WooCommerce zet de prijs geregeld buiten het element dat de titel omsluit.
+    Daarom klimmen we omhoog tot er een bedrag in beeld komt — maar stoppen
+    zodra het blok meer dan één product bevat, anders pikken we de prijs van
+    de buurman.
+    """
+    blok = anker.find_parent(["li", "article"]) or anker.parent or anker
+    node = blok
+    for _ in range(4):
+        if node is None:
+            break
+        tekst = node.get_text(" ")
+        if "€" in tekst or "EUR" in tekst:
+            links = {a["href"].split("?")[0].rstrip("/")
+                     for a in node.find_all("a", href=True)
+                     if _PRODUCT_HREF.search(a["href"])}
+            if len(links) <= 1:
+                return node
+            break
+        node = node.parent
+    return blok
+
+
 def _diagnose(soup, url):
     """Wat was dit voor pagina? Genoeg om de volgende poging te richten."""
     titel = _clean(soup.title.get_text()) if soup.title else "(geen titel)"
@@ -129,7 +154,7 @@ def zoek_winkel(shop, query, limit=25):
         if sleutel in gezien:
             continue
 
-        blok = anker.find_parent(["li", "article", "div"]) or anker
+        blok = _blok_met_prijs(anker)
         bloktekst = _clean(blok.get_text(" "))
 
         # De link omvat vaak kop én prijs; de kop binnen de link is schoner.
