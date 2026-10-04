@@ -212,7 +212,7 @@ def collect(queries, region_passes=EBAY_PASSES):
     return items, stats
 
 
-def render(label, queries, include_terms, exclude_terms, stats, items):
+def render(label, queries, include_terms, exclude_terms, stats, items, require_groups=None):
     lines = [
         f"# RUWE LISTINGS — {label}",
         "",
@@ -220,6 +220,7 @@ def render(label, queries, include_terms, exclude_terms, stats, items):
         f"**Zoektermen:** `{queries}`  ",
         f"**Include:** `{include_terms}`  ",
         f"**Exclude:** `{exclude_terms}`  ",
+        f"**Vereist (elke groep):** `{require_groups or '—'}`  ",
         f"**Verzendt naar:** `{SHIP_TO}` (aanbiedingen zonder verzending hierheen zijn weggelaten)  ",
         f"**Aantal na filtering:** {len(items)}",
         "",
@@ -273,23 +274,27 @@ def main():
     parser.add_argument(
         "spec",
         nargs="?",
-        help='Alles-in-een: "label || query1, query2 || include1 || exclude1, exclude2"',
+        help=('Alles-in-een: "label || zoektermen || include || exclude || require". '
+              'Require: groepen met ";", alternatieven met "|"'),
     )
     parser.add_argument("--label")
     parser.add_argument("--queries", help="komma-gescheiden")
     parser.add_argument("--include", default="", help="komma-gescheiden (OR)")
     parser.add_argument("--exclude", default="", help="komma-gescheiden")
+    parser.add_argument("--require", default="",
+                        help='groepen met ";", alternatieven met "|"')
     args = parser.parse_args()
 
     if args.spec:
         parts = [p.strip() for p in args.spec.split("||")]
-        parts += [""] * (4 - len(parts))
-        label, raw_queries, raw_include, raw_exclude = parts[:4]
+        parts += [""] * (5 - len(parts))
+        label, raw_queries, raw_include, raw_exclude, raw_require = parts[:5]
     else:
         label = args.label
         raw_queries = args.queries
         raw_include = args.include
         raw_exclude = args.exclude
+        raw_require = args.require
 
     if not label or not raw_queries:
         parser.error("label en queries zijn verplicht")
@@ -297,17 +302,26 @@ def main():
     queries = split_arg(raw_queries)
     include_terms = split_arg(raw_include)
     exclude_terms = split_arg(raw_exclude)
+    # Vijfde veld: groepen gescheiden door ";", alternatieven binnen een groep
+    # door "|". Uit elke groep moet iets voorkomen. "35mm|/35 ; 1.4|1,4" eist
+    # dus zowel een 35 als een 1.4 in de titel.
+    require_groups = [
+        [t.strip() for t in groep.split("|") if t.strip()]
+        for groep in (raw_require or "").split(";")
+        if groep.strip()
+    ]
 
     print(f"Zoeken: {label}")
     all_items, stats = collect(queries)
 
     unique = deduplicate(all_items)
-    filtered = filter_items(unique, include_terms, exclude_terms)
+    filtered = filter_items(unique, include_terms, exclude_terms, require_groups)
     print(f"\n{len(all_items)} ruw, {len(unique)} uniek, {len(filtered)} na filtering")
 
     inspect_descriptions(filtered)
 
-    body = render(label, queries, include_terms, exclude_terms, stats, filtered)
+    body = render(label, queries, include_terms, exclude_terms, stats, filtered,
+                  require_groups)
     title = f"{label} – {date.today().isoformat()}"
 
     if os.environ.get("GITHUB_ACTIONS"):
