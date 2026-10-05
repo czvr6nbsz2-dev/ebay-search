@@ -135,6 +135,9 @@ def search_kleinanzeigen(query, limit=30):
             "city": None,
             "url": key or None,
             "description": block_text[:1200],
+            # Prijs en volledige tekst staan op de advertentiepagina zelf;
+            # de zoekresultatenpagina geeft maar een teaser.
+            "needs_detail": True,
         })
         if len(results) >= limit:
             break
@@ -147,6 +150,49 @@ def search_kleinanzeigen(query, limit=30):
             f"eerste blok: {structure} tekst={_clean(first.get_text(' '))[:120]!r}"
         )
     return results, None
+
+
+def haal_advertentie(url):
+    """Haal prijs en volledige tekst van één advertentiepagina.
+
+    De zoekresultatenpagina geeft alleen een afgeknotte teaser, en de prijs
+    kwam er in de praktijk niet uit. Op de advertentiepagina zelf staan
+    beide wel — en juist daar schrijft een verkoper of er nevel of schimmel
+    in zit. Geeft (prijs, tekst, diagnose) terug.
+    """
+    try:
+        response = requests.get(url, headers=HEADERS, cookies=COOKIES, timeout=25)
+    except Exception as e:
+        return None, None, f"{type(e).__name__}: {str(e)[:80]}"
+    if response.status_code != 200:
+        return None, None, f"HTTP {response.status_code}"
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+
+    prijs = None
+    for selector in ("#viewad-price", "[class*='viewad-price']", "h2[class*='price']"):
+        node = soup.select_one(selector)
+        if node:
+            prijs = _parse_price(_clean(node.get_text(" ")))
+            if prijs is not None:
+                break
+    if prijs is None:                       # terugval: eerste bedrag op de pagina
+        prijs = _parse_price(_clean(soup.get_text(" "))[:4000])
+
+    tekst = None
+    for selector in ("#viewad-description-text", "[class*='viewad-description']",
+                     "[id*='description']"):
+        node = soup.select_one(selector)
+        if node:
+            tekst = _clean(node.get_text(" "))
+            if tekst:
+                break
+    if not tekst:
+        tekst = _clean(soup.get_text(" "))[:2000]
+
+    return prijs, tekst, None
 
 
 def search_many(queries, limit=30, pause=1.5):

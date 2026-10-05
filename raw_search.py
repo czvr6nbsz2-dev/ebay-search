@@ -116,8 +116,20 @@ def inspect_descriptions(items, limit=INSPECT_LIMIT):
     )
     checked = 0
     for item in todo:
-        # Marktplaats en Kleinanzeigen leveren hun tekst al mee; alleen voor
-        # eBay is een extra verzoek nodig.
+        # Kleinanzeigen geeft op de zoekpagina alleen een teaser en geen
+        # prijs; de advertentiepagina heeft beide. Die halen we hier op.
+        if item.get("needs_detail"):
+            prijs, tekst, probleem = kleinanzeigen.haal_advertentie(item["url"])
+            if probleem:
+                item["flaws"] = f"(advertentie niet op te halen: {probleem})"
+                continue
+            if prijs is not None:
+                item["price"] = prijs
+            if tekst:
+                item["description"] = tekst
+
+        # Marktplaats levert zijn tekst al mee; alleen voor eBay is een
+        # extra verzoek nodig.
         html = item.get("description")
         if not html:
             legacy_id = item_key(item.get("url"))
