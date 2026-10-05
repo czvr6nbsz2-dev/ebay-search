@@ -38,6 +38,11 @@ COOKIES = {"gdpr-consent": "1", "ccpa-notice-viewed-02": "true"}
 # "HN-3 450,00 €" als 3450 in plaats van 450.
 _PRICE = re.compile(r"(\d{1,3}(?:\.\d{3})*|\d+)(?:,(\d{2}))?\s*€")
 _WS = re.compile(r"\s+")
+# Een zoekterm zonder treffers is geen kapotte scraper. Zonder dit
+# onderscheid slaat de wekelijkse ronde elke keer vals alarm.
+_GEEN_TREFFERS = re.compile(
+    r"(leider keine anzeigen|keine anzeigen gefunden|keine ergebnisse|"
+    r"0 anzeigen|nichts gefunden|keine passenden anzeigen)", re.I)
 
 
 def _parse_price(text):
@@ -91,8 +96,11 @@ def search_kleinanzeigen(query, limit=30):
     soup = BeautifulSoup(response.text, "html.parser")
     anchors = soup.select('a[href*="/s-anzeige/"]')
     if not anchors:
-        text = _clean(soup.get_text(" "))[:200]
-        return [], f"geen /s-anzeige/-links op de pagina; tekst begint met {text!r}"
+        paginatekst = _clean(soup.get_text(" "))
+        if _GEEN_TREFFERS.search(paginatekst):
+            return [], None          # gewoon niets te koop, niets kapot
+        return [], (f"geen /s-anzeige/-links op de pagina; "
+                    f"tekst begint met {paginatekst[:200]!r}")
 
     results, seen = [], set()
     for anchor in anchors:
