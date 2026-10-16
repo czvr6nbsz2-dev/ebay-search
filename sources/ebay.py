@@ -29,6 +29,7 @@ def get_ebay_token():
             "Content-Type": "application/x-www-form-urlencoded",
         },
         data="grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope",
+        timeout=25,
     )
     response.raise_for_status()
     token_data = response.json()
@@ -78,6 +79,7 @@ def search_ebay(query, limit=200, category_id=None, region_filter=None, marketpl
             "X-EBAY-C-MARKETPLACE-ID": marketplace,
         },
         params=params,
+        timeout=25,
     )
     response.raise_for_status()
     return response.json().get("itemSummaries", [])
